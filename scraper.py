@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup, Comment  # pip install beautifulsoup4
 
 # === Einstellungen ===
 LINKS_CSV = "player_links.csv"     # Eingabe
-OUT_CSV   = "players_data.csv"     # Ausgabe (eine Zeile pro Spieler)
+OUT_CSV   = "players_data3.csv"     # Ausgabe (eine Zeile pro Spieler)
 HEADLESS  = True
 PAGE_TIMEOUT = 20
 
