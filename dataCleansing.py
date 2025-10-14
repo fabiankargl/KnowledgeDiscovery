@@ -10,6 +10,7 @@ def clean_text(val):
     if pd.isna(val):
         return None
     val = re.sub(r"[Â\xa0]+", " ", str(val))
+    val = re.sub(r"[Â\xa0â–ª]+", " ", val)
     val = re.sub(r"\s+", " ", val).strip()
     return val
 
