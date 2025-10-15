@@ -106,7 +106,7 @@ df_namelink = pd.read_csv(
 )
 
 df_playerinfo = pd.read_csv(
-    "players_data6.csv",
+    "players_data3.csv",
     quotechar='"',
     encoding="utf-8",
     engine="python",
