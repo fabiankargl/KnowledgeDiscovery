@@ -9,38 +9,124 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    WebDriverException,
+)
 from webdriver_manager.chrome import ChromeDriverManager
 
+# Optional: für #meta-Parsing und Transactions in HTML-Kommentaren
 from bs4 import BeautifulSoup, Comment  # pip install beautifulsoup4
 
-
 # === Einstellungen ===
-LINKS_CSV = "player_links.csv"     # Eingabe
-OUT_CSV   = "players_data3.csv"     # Ausgabe (eine Zeile pro Spieler)
-HEADLESS  = True
-PAGE_TIMEOUT = 20
+LINKS_CSV    = "player_links.csv"     # Eingabe
+OUT_CSV      = "players_data6.csv"    # Ausgabe (eine Zeile pro Spieler)
+HEADLESS     = True
+PAGE_TIMEOUT = 15                      # Seiten-Timeout
+WAIT_META    = 8                       # Wartezeit auf #meta (schlanker als #wrap)
 
 
 def init_driver(headless: bool = True) -> webdriver.Chrome:
+    """Schneller, stabiler Driver (eager, Ressourcen blocken, kürzere Timeouts)."""
     opts = Options()
     if headless:
-        opts.add_argument("--headless=new")
+        # Wenn Probleme: "--headless" statt "--headless=new"
+        opts.add_argument("--headless")
     opts.add_argument("--disable-gpu")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--disable-dev-shm-usage")
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
+    opts.add_argument("--blink-settings=imagesEnabled=false")
+    # schneller: wartet nicht auf alle Subressourcen
+    opts.page_load_strategy = "eager"
 
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
 
-def close_popups(driver: webdriver.Chrome) -> None:
+    # Zeitlimits enger setzen
+    driver.set_page_load_timeout(PAGE_TIMEOUT)
+    driver.set_script_timeout(10)
+
+    # Selenium-HTTP-Client Timeout (verhindert 120s-Hänger auf localhost)
     try:
-        btn = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "osano-cm-accept-all"))
+        driver.command_executor._client_config.timeout = 30
+    except Exception:
+        pass
+
+    # Große Ressourcen blocken (macht Seiten deutlich kleiner/schneller)
+    try:
+        driver.execute_cdp_cmd("Network.enable", {})
+        driver.execute_cdp_cmd(
+            "Network.setBlockedURLs",
+            {
+                "urls": [
+                    "*.png",
+                    "*.jpg",
+                    "*.jpeg",
+                    "*.gif",
+                    "*.webp",
+                    "*.svg",
+                    "*.css",
+                    "*.woff",
+                    "*.woff2",
+                    "*.ttf",
+                ]
+            },
         )
-        btn.click()
-        time.sleep(0.4)
-    except (TimeoutException, NoSuchElementException):
+    except Exception:
+        pass
+
+    return driver
+
+
+def close_popups(driver: webdriver.Chrome, total_timeout: float = 1.0) -> None:
+    """
+    Nicht blockierend. Klickt gängige Consent/OK-Buttons, sonst weiter.
+    Max. ~1.0 s.
+    """
+    deadline = time.time() + total_timeout
+    selectors = [
+        (By.CLASS_NAME, "osano-cm-accept-all"),
+        (By.CSS_SELECTOR, "button.osano-cm-accept-all"),
+        (By.CSS_SELECTOR, "button[aria-label*='Accept' i]"),
+        (By.CSS_SELECTOR, "button[id*='accept' i], button[class*='accept' i]"),
+        (By.XPATH, "//button[contains(translate(., 'ACCEPT','accept'),'accept')]"),
+        (By.XPATH, "//button[contains(., 'I Accept') or contains(., 'I agree')]"),
+        (By.XPATH, "//input[@type='submit' and contains(@value, 'I Accept')]"),
+    ]
+    while time.time() < deadline:
+        clicked = False
+        for by, sel in selectors:
+            try:
+                for el in driver.find_elements(by, sel):
+                    if el.is_displayed() and el.is_enabled():
+                        try:
+                            el.click()
+                            clicked = True
+                            break
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+        if clicked:
+            return
+        time.sleep(0.08)
+
+    # JS-Fallback (einmalig, nicht blockierend)
+    try:
+        driver.execute_script(
+            """
+(function(){
+  function v(el){try{const r=el.getBoundingClientRect();return r.width>0&&r.height>0}catch(e){return false}}
+  const keys=['accept','agree','ok'];
+  const nodes=[...document.querySelectorAll('button,input[type=button],input[type=submit]')];
+  for(const n of nodes){
+    const t=((n.innerText||n.value||'')+' '+(n.getAttribute('aria-label')||'')+' '+(n.id||'')+' '+(n.className||'')).toLowerCase();
+    if(keys.some(k=>t.includes(k)) && v(n)){ try{ n.click(); return; }catch(e){} }
+  }
+})();"""
+        )
+    except Exception:
         pass
 
 
@@ -50,25 +136,28 @@ def read_links_from_csv(filename: str) -> List[Tuple[str, str]]:
         reader = csv.DictReader(f)
         for row in reader:
             name = (row.get("Player Name") or "").strip()
-            url  = (row.get("Profile URL") or "").strip()
+            url = (row.get("Profile URL") or "").strip()
             if name and url:
                 links.append((name, url))
     return links
 
 
-def wait_for_main(driver: webdriver.Chrome) -> None:
-    WebDriverWait(driver, PAGE_TIMEOUT).until(EC.presence_of_element_located((By.ID, "wrap")))
+def wait_for_meta(driver: webdriver.Chrome) -> None:
+    WebDriverWait(driver, WAIT_META).until(
+        EC.presence_of_element_located((By.ID, "meta"))
+    )
 
 
 def extract_meta_from_dom(driver: webdriver.Chrome) -> Dict[str, str]:
     """
     Extrahiert Meta-Daten aus #meta.
-    WICHTIG: 'Name' und 'Shoots' werden GAR NICHT mehr aufgenommen.
+    'Shoots' wird absichtlich NICHT übernommen.
     """
     import re
+
     meta: Dict[str, str] = {}
     try:
-        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "meta")))
+        wait_for_meta(driver)
     except TimeoutException:
         pass
 
@@ -84,13 +173,10 @@ def extract_meta_from_dom(driver: webdriver.Chrome) -> Dict[str, str]:
             key = strong.get_text(strip=True).rstrip(":")
             strong.extract()
             value = p.get_text(" ", strip=True)
-            if value:
-                # 'Shoots' bewusst NICHT übernehmen
-                if key.lower() == "shoots":
-                    continue
+            if value and key.lower() != "shoots":
                 meta[key] = value
 
-    # (2) Height/Weight über itemprop (wenn vorhanden)
+    # (2) Height/Weight via itemprop
     span_h = meta_div.find("span", attrs={"itemprop": "height"})
     span_w = meta_div.find("span", attrs={"itemprop": "weight"})
     if span_h:
@@ -102,7 +188,6 @@ def extract_meta_from_dom(driver: webdriver.Chrome) -> Dict[str, str]:
             if m:
                 h_suffix = f" {m.group(0)}"
         meta["Height"] = (h_text + h_suffix).strip()
-
     if span_w:
         w_text = span_w.get_text(" ", strip=True)
         after = span_w.find_next(string=True)
@@ -113,7 +198,7 @@ def extract_meta_from_dom(driver: webdriver.Chrome) -> Dict[str, str]:
                 w_suffix = f" {m.group(0)}"
         meta["Weight"] = (w_text + w_suffix).strip()
 
-    # (3) Fallback: "Key: Value"-Zeilen heuristisch — 'Shoots' überspringen
+    # (3) Fallback: "Key: Value" — 'Shoots' überspringen
     for line in [t.strip() for t in meta_div.get_text("\n").split("\n") if t.strip()]:
         if ":" in line:
             key, val = line.split(":", 1)
@@ -121,32 +206,38 @@ def extract_meta_from_dom(driver: webdriver.Chrome) -> Dict[str, str]:
             if key and val and key not in meta and key.lower() != "shoots":
                 meta[key] = val
 
-    # (4) Weitere Fallbacks nur für Height/Weight via Regex
+    # (4) Regex-Fallbacks für Height/Weight
     full_text = meta_div.get_text(" ", strip=True)
     if "Height" not in meta:
         m = re.search(r"(\d{1,2}-\d{1,2})(\s*\(\s*\d{2,3}\s*cm\s*\))?", full_text)
         if m:
             meta["Height"] = (m.group(1) + (m.group(2) or "")).strip()
     if "Weight" not in meta:
-        m = re.search(r"(\d{2,3})\s*lb(\s*\(\s*\d{2,3}\s*kg\s*\))?", full_text, flags=re.IGNORECASE)
+        m = re.search(
+            r"(\d{2,3})\s*lb(\s*\(\s*\d{2,3}\s*kg\s*\))?",
+            full_text,
+            flags=re.IGNORECASE,
+        )
         if m:
             meta["Weight"] = (f"{m.group(1)}lb" + (m.group(2) or "")).strip()
 
-    # (5) KEIN Name-Feld setzen
     return meta
 
 
 def extract_transactions_raw(driver: webdriver.Chrome) -> str:
     """
-    Liefert den *kompletten Text* aus all_transactions (inkl. kommentierter Tabelle).
-    Rückgabe: ein einziger String (Zeilen mit '\n' getrennt).
+    Holt den kompletten Text der Transactions (inkl. kommentierter Tabelle).
+    Rückgabe: String mit '\n' als Zeilentrenner.
     """
     soup = BeautifulSoup(driver.page_source, "html.parser")
 
-    container = soup.find("div", class_="all_transactions") or soup.find(id="all_transactions")
+    container = soup.find("div", class_="all_transactions") or soup.find(
+        id="all_transactions"
+    )
     if not container:
         return ""
 
+    # Tabelle steckt oft in HTML-Kommentaren
     comments = container.find_all(string=lambda t: isinstance(t, Comment))
     if comments:
         joined = "\n".join(c for c in comments)
@@ -169,64 +260,80 @@ def normalize_ws(text: str) -> str:
 
 
 def main() -> None:
-    print("[INFO] Starte Scraper (eine Zeile pro Spieler; ohne Name/Shoots in CSV)…")
+    print("[INFO] Starte Scraper (eine Zeile pro Spieler; 'Shoots' wird nicht geschrieben)…")
     links = read_links_from_csv(LINKS_CSV)
     if not links:
         print("[ERROR] Keine Links gefunden.")
         return
 
-    # KEIN Name, KEIN Shoots in der CSV
     common_meta = ["Position", "Born", "College", "High School", "Draft", "Height", "Weight"]
     fieldnames = ["Player Name", "Profile URL", *common_meta, "MetaRaw", "TransactionsRaw"]
 
     driver = init_driver(HEADLESS)
-    with open(OUT_CSV, "w", newline="", encoding="utf-8") as f_out:
-        writer = csv.DictWriter(f_out, fieldnames=fieldnames)
-        writer.writeheader()
+    try:
+        with open(OUT_CSV, "w", newline="", encoding="utf-8") as f_out:
+            writer = csv.DictWriter(f_out, fieldnames=fieldnames)
+            writer.writeheader()
 
-        for idx, (player_name, url) in enumerate(links, start=1):
-            print(f"[{idx}/{len(links)}] {player_name} -> {url}")
-            try:
-                driver.get(url)
-            except Exception as e:
-                print(f"[WARN] Laden fehlgeschlagen: {e}")
-                continue
+            for idx, (player_name, url) in enumerate(links, start=1):
+                print(f"[{idx}/{len(links)}] {player_name} -> {url}")
 
-            close_popups(driver)
-            try:
-                wait_for_main(driver)
-            except TimeoutException:
-                print("[WARN] Seite evtl. unvollständig – fahre fort.")
+                # Kurzer Lade-Retry (vermeidet harte Abbrüche)
+                ok = False
+                for i in range(2):
+                    try:
+                        driver.get(url)
+                        ok = True
+                        break
+                    except WebDriverException as e:
+                        if i == 1:
+                            print(f"[WARN] Laden fehlgeschlagen: {e}")
+                        time.sleep(0.6 + 0.4 * i)
+                if not ok:
+                    continue
 
-            base = {"Player Name": player_name, "Profile URL": url}
+                # Cookie/Consent unblocking, aber nicht blockierend
+                close_popups(driver)
 
-            # META
-            try:
-                meta = extract_meta_from_dom(driver)
-            except Exception as e:
-                print(f"[WARN] META-Parsing-Fehler: {e}")
-                meta = {}
+                # Schlankes Warten auf #meta (statt #wrap)
+                try:
+                    wait_for_meta(driver)
+                except TimeoutException:
+                    print("[WARN] #meta nicht eindeutig – fahre fort.")
 
-            row = {**base}
-            # MetaRaw + gewünschte Meta-Felder (ohne Name/Shoots)
-            row["MetaRaw"] = "; ".join([f"{k}: {v}" for k, v in meta.items()])
-            for k in common_meta:
-                if k in meta:
-                    row[k] = meta[k]
+                base = {"Player Name": player_name, "Profile URL": url}
 
-            # TRANSACTIONS: kompletter Text
-            try:
-                tx_raw = extract_transactions_raw(driver)
-            except Exception as e:
-                print(f"[WARN] Transactions-Parsing-Fehler: {e}")
-                tx_raw = ""
-            row["TransactionsRaw"] = tx_raw
+                # META
+                try:
+                    meta = extract_meta_from_dom(driver)
+                except Exception as e:
+                    print(f"[WARN] META-Parsing-Fehler: {e}")
+                    meta = {}
 
-            writer.writerow(row)
-            time.sleep(1.0)
+                row = {**base}
+                row["MetaRaw"] = "; ".join([f"{k}: {v}" for k, v in meta.items()])
+                for k in common_meta:
+                    if k in meta:
+                        row[k] = meta[k]
 
-    driver.quit()
-    print(f"[SUCCESS] Fertig. Gespeichert in '{OUT_CSV}'.")
+                # TRANSACTIONS
+                try:
+                    tx_raw = extract_transactions_raw(driver)
+                except Exception as e:
+                    print(f"[WARN] Transactions-Parsing-Fehler: {e}")
+                    tx_raw = ""
+                row["TransactionsRaw"] = tx_raw
+
+                writer.writerow(row)
+                # kurze Pause (bei Bedarf 0.15–0.2 testen)
+                time.sleep(0.25)
+
+        print(f"[SUCCESS] Fertig. Gespeichert in '{OUT_CSV}'.")
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
