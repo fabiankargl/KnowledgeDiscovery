@@ -35,9 +35,9 @@ if birthday_col:
         if pd.notna(x) and re.search(r"([A-Za-z]+\s+\d{1,2}\s*,\s*\d{4})", str(x)) else None
     )
 
-tx_col = find_column_containing(df, "transactions")
-if tx_col:
-    df["transactions list"] = df[tx_col].apply(
+transactions_col = find_column_containing(df, "transactions")
+if transactions_col:
+    df["transactions list"] = df[transactions_col].apply(
         lambda x: [y.strip() for y in str(x).split(". ") if y.strip()] if pd.notna(x) else []
     )
 
