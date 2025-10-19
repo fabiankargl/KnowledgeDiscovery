@@ -156,9 +156,6 @@ class SearchEngine:
             for field, values in self.index["numeric"].items()
         }
 
-    # ------------------------------------------------------------------
-    # Query parsing
-    # ------------------------------------------------------------------
     def parse_query(self, query: str) -> QueryComponents:
         tokens = shlex.split(query)
 
@@ -207,9 +204,6 @@ class SearchEngine:
             keyword_filters=keyword_filters,
         )
 
-    # ------------------------------------------------------------------
-    # Public search API
-    # ------------------------------------------------------------------
     def search(
         self,
         query: str,
@@ -264,10 +258,6 @@ class SearchEngine:
 
         results.sort(key=lambda x: x.cosine_score, reverse=True)
         return results[:top_k]
-
-    # ------------------------------------------------------------------
-    # Helper methods
-    # ------------------------------------------------------------------
     def normalise_field(self, field: str) -> str:
         field_norm = field.lower().strip().replace(" ", "_")
         if field_norm in self.field_aliases:
