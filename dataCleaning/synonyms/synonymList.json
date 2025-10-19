@@ -1,0 +1,13 @@
+{
+  "power forward": "pf",
+  "center": "c",
+  "point guard": "pg",
+  "shooting guard": "sg",
+  "small forward": "sf",
+  "guard": "g",
+  "forward": "f",
+  "right": "r",
+  "left": "l",
+  "and": "/",
+  ",": "/"
+}
