@@ -110,7 +110,7 @@ def row_to_rdf(g: Graph, EX, row, line_num):
             g.add((player_uri, EX.hasTransaction, Literal(tx_list_str)))
 
 def main():
-    base_ns = 'https://groupg.kdir/basketball'
+    base_ns = 'http://example.org/ontology#BasketballPlayer'
     output_file = 'players.ttl'
     rdf_format = 'turtle'
     os.makedirs('datasets', exist_ok=True)
