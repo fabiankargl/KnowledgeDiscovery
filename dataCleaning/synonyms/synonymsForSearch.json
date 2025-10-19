@@ -1,0 +1,74 @@
+{
+  "category_synonyms": {
+    "player name": ["name", "player", "athlete", "basketball player"],
+    "position": ["pos", "role", "playing position"],
+    "shoots": ["hand", "shooting hand", "shooting side"],
+    "birthday": ["date born", "date of birth"],
+    "college": ["university", "school", "ncaa", "uni"],
+    "high school": ["hs", "secondary school"],
+    "draft": ["drafted by", "nba draft", "pick", "selection"],
+    "weight": ["bodyweight"],
+    "age": ["years", "years old"],
+    "birth city": ["city", "hometown", "birthplace"],
+    "birth country": ["country", "nationality", "citizenship"],
+    "transactions list": ["transactions", "trades", "draft history"]
+  },
+
+  "position_synonyms": {
+    "pg": "point guard",
+    "sg": "shooting guard",
+    "sf": "small forward",
+    "pf": "power forward",
+    "c": "center",
+    "g": "guard",
+    "f": "forward"
+  },
+
+  "shooting_hand_synonyms": {
+    "r": ["right", "right-handed"],
+    "l": ["left", "left-handed"]
+  },
+
+  "country_synonyms": {
+    "us": ["united states", "usa"],
+    "eg": "egypt",
+    "fr": "france",
+    "de": "germany",
+    "ng": "nigeria",
+    "es": "spain",
+    "cn": ["people's republic of china", "china"],
+    "pr": "puerto rico",
+    "gr": "greece",
+    "uy": "uruguay",
+    "it": "italy",
+    "br": "brazil",
+    "pa": "panama",
+    "ba": ["bosnia and herzegovina", "bosnia"],
+    "ss": "south sudan",
+    "lc": "saint lucia",
+    "cm": "cameroon",
+    "gh": "ghana",
+    "ca": "canada",
+    "au": "australia",
+    "ru": "russia",
+    "dk": "denmark",
+    "pl": "poland",
+    "il": "israel",
+    "sn": "senegal",
+    "gp": "guadeloupe",
+    "nl": "netherlands",
+    "lv": "latvia",
+    "tr": "turkey",
+    "rs": "serbia",
+    "uk": ["united kingdom", "gb", "great britain"]
+  },
+
+  "transaction_terms": {
+    "drafted": "draft",
+    "traded": "trade",
+    "signed": "signing",
+    "waived": "released",
+    "retired": "retirement",
+    "pick": "draft pick"
+  }
+}
