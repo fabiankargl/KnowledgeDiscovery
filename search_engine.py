@@ -20,7 +20,9 @@ from build_index import (
     tf_weight,
 )
 
-SYNONYM_PATH = Path("dataCleaning/synonyms/synonymsForSearch.json")
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_INDEX_DIR = BASE_DIR / "indexes"
+DEFAULT_SYNONYM_PATH = BASE_DIR / "dataCleaning" / "synonyms" / "synonymsForSearch.json"
 
 
 @dataclass
@@ -33,9 +35,23 @@ class QueryComponents:
     keyword_filters: MutableMapping[str, List[str]]
 
 
+@dataclass
+class SearchResult:
+    """Represents a single search hit."""
+
+    doc_id: int
+    tf_idf_score: float
+    cosine_score: float
+
+
 def load_pickle(path: Path):
-    with path.open("rb") as f:
-        return pickle.load(f)
+    try:
+        with path.open("rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError as exc:  # pragma: no cover - defensive programming
+        raise FileNotFoundError(
+            f"Missing required data file: {path}. Run 'python build_index.py' first."
+        ) from exc
 
 
 def load_synonyms(path: Path) -> Tuple[Dict[str, str], Dict[str, List[str]]]:
@@ -46,6 +62,14 @@ def load_synonyms(path: Path) -> Tuple[Dict[str, str], Dict[str, List[str]]]:
     tuple(dict, dict)
         ``(field_aliases, token_synonyms)``.
     """
+
+    if not path.exists():  # pragma: no cover - configuration fallback
+        default_aliases: Dict[str, str] = {}
+        for field in list(FIELDS_TO_INDEX) + list(FIELDS_NUMERIC) + list(FIELDS_KEYWORD):
+            default_aliases[field] = field
+            default_aliases[field.replace(" ", "_")] = field
+            default_aliases[field.replace(" ", "")] = field
+        return default_aliases, defaultdict(list)
 
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
@@ -109,12 +133,18 @@ def load_synonyms(path: Path) -> Tuple[Dict[str, str], Dict[str, List[str]]]:
 class SearchEngine:
     def __init__(
         self,
-        index_path: Path = Path("indexes/index.pkl"),
-        idf_path: Path = Path("indexes/idf.pkl"),
-        norms_path: Path = Path("indexes/doc_norms.pkl"),
-        meta_path: Path = Path("indexes/doc_meta.pkl"),
-        synonyms_path: Path = SYNONYM_PATH,
+        index_path: Optional[Path] = None,
+        idf_path: Optional[Path] = None,
+        norms_path: Optional[Path] = None,
+        meta_path: Optional[Path] = None,
+        synonyms_path: Optional[Path] = None,
     ) -> None:
+        index_path = Path(index_path) if index_path else DEFAULT_INDEX_DIR / "index.pkl"
+        idf_path = Path(idf_path) if idf_path else DEFAULT_INDEX_DIR / "idf.pkl"
+        norms_path = Path(norms_path) if norms_path else DEFAULT_INDEX_DIR / "doc_norms.pkl"
+        meta_path = Path(meta_path) if meta_path else DEFAULT_INDEX_DIR / "doc_meta.pkl"
+        synonyms_path = Path(synonyms_path) if synonyms_path else DEFAULT_SYNONYM_PATH
+
         self.index = load_pickle(index_path)
         self.idf = load_pickle(idf_path)
         self.doc_norms = load_pickle(norms_path)
@@ -186,7 +216,7 @@ class SearchEngine:
         top_k: int = 10,
         boost_field: Optional[str] = None,
         boost_strength: float = 0.0,
-    ) -> List[Tuple[int, float]]:
+    ) -> List[SearchResult]:
         components = self.parse_query(query)
 
         scores: MutableMapping[int, float] = defaultdict(float)
@@ -216,7 +246,7 @@ class SearchEngine:
         if query_norm == 0.0:
             return []
 
-        results: List[Tuple[int, float]] = []
+        results: List[SearchResult] = []
         for doc_id, score in scores.items():
             if not self._passes_filters(doc_id, components):
                 continue
@@ -230,9 +260,9 @@ class SearchEngine:
             if boost_field:
                 final_score = self._apply_boost(doc_id, boost_field, final_score, boost_strength)
 
-            results.append((doc_id, final_score))
+            results.append(SearchResult(doc_id=doc_id, tf_idf_score=score, cosine_score=final_score))
 
-        results.sort(key=lambda x: x[1], reverse=True)
+        results.sort(key=lambda x: x.cosine_score, reverse=True)
         return results[:top_k]
 
     # ------------------------------------------------------------------
@@ -343,10 +373,11 @@ class SearchEngine:
     # ------------------------------------------------------------------
     # Presentation helpers
     # ------------------------------------------------------------------
-    def format_result(self, doc_id: int, score: float) -> str:
-        meta = self.doc_meta.get(doc_id, {})
+    def format_result(self, result: SearchResult) -> str:
+        meta = self.doc_meta.get(result.doc_id, {})
         lines = [
-            f"Rank score: {score:.4f}",
+            f"TF-IDF dot product: {result.tf_idf_score:.4f}",
+            f"Cosine similarity: {result.cosine_score:.4f}",
             f"Name: {meta.get('player name', 'N/A').title()}",
             f"Position: {meta.get('position clean', 'N/A')}",
             f"College: {meta.get('college', 'N/A')}",
@@ -390,9 +421,9 @@ def interactive_loop(engine: SearchEngine, args: argparse.Namespace) -> None:
             print("No matches found.\n")
             continue
 
-        for rank, (doc_id, score) in enumerate(results, start=1):
+        for rank, result in enumerate(results, start=1):
             print(f"#{rank}")
-            print(engine.format_result(doc_id, score))
+            print(engine.format_result(result))
             print("-" * 60)
 
 
@@ -410,10 +441,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=0.15,
         help="Boost multiplier (0 disables boosting).",
     )
+    parser.add_argument(
+        "--index-dir",
+        type=Path,
+        default=DEFAULT_INDEX_DIR,
+        help="Directory containing index.pkl, idf.pkl, doc_norms.pkl and doc_meta.pkl.",
+    )
+    parser.add_argument(
+        "--synonyms",
+        type=Path,
+        default=DEFAULT_SYNONYM_PATH,
+        help="Path to the synonymsForSearch.json configuration file.",
+    )
 
     args = parser.parse_args(argv)
 
-    engine = SearchEngine()
+    engine = SearchEngine(
+        index_path=args.index_dir / "index.pkl",
+        idf_path=args.index_dir / "idf.pkl",
+        norms_path=args.index_dir / "doc_norms.pkl",
+        meta_path=args.index_dir / "doc_meta.pkl",
+        synonyms_path=args.synonyms,
+    )
 
     if args.query:
         results = engine.search(
@@ -426,9 +475,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("No matches found.")
             return 0
 
-        for rank, (doc_id, score) in enumerate(results, start=1):
+        for rank, result in enumerate(results, start=1):
             print(f"#{rank}")
-            print(engine.format_result(doc_id, score))
+            print(engine.format_result(result))
             print("-" * 60)
         return 0
 
