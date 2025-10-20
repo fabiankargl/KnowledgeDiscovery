@@ -113,6 +113,18 @@ ex:hasDraft a rdf:Property ;
     rdfs:label "has draft"@en ;
     rdfs:comment "Draft information related to the athlete."@en .
 
+ex:draftedBy a rdf:Property ;
+    rdfs:domain ex:CareerEvent ;
+    rdfs:range ex:Team ;
+    rdfs:label "drafted by"@en ;
+    rdfs:comment "Team that drafted the athlete."@en .
+
+ex:draftYear a rdf:Property ;
+    rdfs:domain ex:CareerEvent ;
+    rdfs:range xsd:gYear ;
+    rdfs:label "draft year"@en ;
+    rdfs:comment "Year in which the draft took place."@en .
+
 ex:hasTransaction a rdf:Property ;
     rdfs:domain ex:Athlete ;
     rdfs:range ex:CareerEvent ;

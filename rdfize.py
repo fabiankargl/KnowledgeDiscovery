@@ -23,67 +23,62 @@ def create_graph(base_ns: str):
     g.bind('rdfs', RDFS)
     g.bind('dct', DCTERMS)
 
-    classes = ['Player', 'Team', 'College', 'HighSchool', 'City', 'Country', 'Transaction', 'Dataset']
+    classes = ['Athlete', 'Team', 'Education', 'City', 'Country', 'CareerEvent', 'Dataset']
     for cls in classes:
         g.add((EX[cls], RDF.type, RDFS.Class))
-
-    props = ['position', 'shoots', 'birthDate', 'weight', 'age', 'draftInfo', 
-             'teamLocation', 'stadium', 'foundingYear']
+    props = ['position', 'shoots', 'birthDate', 'weight', 'age', 'hasDraft', 'playsFor', 'hasTransaction', 'attendedCollege', 'attendedHighSchool', 'birthCity', 'birthCountry']
     for p in props:
         g.add((EX[p], RDF.type, RDF.Property))
     g.add((EX.hasTransaction, RDF.type, RDF.Property))
-
     return g, EX
 
 def row_to_rdf(g: Graph, EX, row, line_num):
     raw_name = row.get('player_name')
     name = raw_name.strip() if raw_name else None
-
     if name:
-        player_uri = EX['player/' + slugify(name)]
+        athlete_uri = EX['athlete/' + slugify(name)]
     else:
-        player_uri = EX[f'player/row-{line_num}']
-
-    g.add((player_uri, RDF.type, EX.Player))
+        athlete_uri = EX[f'athlete/row-{line_num}']
+    g.add((athlete_uri, RDF.type, EX.Athlete))
     if name:
-        g.add((player_uri, RDFS.label, Literal(name)))
-        g.add((player_uri, FOAF.name, Literal(name)))
+        g.add((athlete_uri, RDFS.label, Literal(name)))
+        g.add((athlete_uri, FOAF.name, Literal(name)))
 
     profile = row.get('profile_url')
     if profile:
-        g.add((player_uri, FOAF.page, URIRef(profile)))
+        g.add((athlete_uri, FOAF.page, URIRef(profile)))
 
     for col, prop in [('position_clean', EX.position), ('shoots', EX.shoots)]:
         val = row.get(col)
         if val and val != '-':
-            g.add((player_uri, prop, Literal(val)))
+            g.add((athlete_uri, prop, Literal(val)))
 
     birthday = row.get('birthday')
     if birthday:
         try:
             bd = parse(birthday.strip())
-            g.add((player_uri, EX.birthDate, Literal(bd.date(), datatype=XSD.date)))
+            g.add((athlete_uri, EX.birthDate, Literal(bd.date(), datatype=XSD.date)))
         except:
-            g.add((player_uri, EX.birthDate, Literal(birthday)))
+            g.add((athlete_uri, EX.birthDate, Literal(birthday)))
 
     for col, prop in [('weight', EX.weight), ('age', EX.age)]:
         val = row.get(col)
         if val and val.isdigit():
-            g.add((player_uri, prop, Literal(int(val), datatype=XSD.integer)))
+            g.add((athlete_uri, prop, Literal(int(val), datatype=XSD.integer)))
 
     college = row.get('college')
     if college and college != '-':
-        college_uri = EX['college/' + slugify(college)]
+        college_uri = EX['education/' + slugify(college)]
         g.add((college_uri, RDF.type, EX.College))
         g.add((college_uri, RDFS.label, Literal(college)))
-        g.add((player_uri, EX.college, college_uri))
+        g.add((athlete_uri, EX.attendedCollege, college_uri))
 
     hs = row.get('high_school')
     if hs and hs != '-':
-        hs_uri = EX['highschool/' + slugify(hs)]
+        hs_uri = EX['education/' + slugify(hs)]
         g.add((hs_uri, RDF.type, EX.HighSchool))
         g.add((hs_uri, RDFS.label, Literal(hs)))
-        g.add((player_uri, EX.highSchool, hs_uri))
+        g.add((athlete_uri, EX.attendedHighSchool, hs_uri))
 
     for col, cls, prop in [('birth_city', 'City', EX.birthCity), ('birth_country', 'Country', EX.birthCountry)]:
         val = row.get(col)
@@ -91,11 +86,29 @@ def row_to_rdf(g: Graph, EX, row, line_num):
             val_uri = EX[f'{cls.lower()}/{slugify(val)}']
             g.add((val_uri, RDF.type, getattr(EX, cls)))
             g.add((val_uri, RDFS.label, Literal(val)))
-            g.add((player_uri, prop, val_uri))
+            g.add((athlete_uri, prop, val_uri))
 
-    draft = row.get('draft')
-    if draft and draft != '-':
-        g.add((player_uri, EX.draftInfo, Literal(draft)))
+    draft_str = row.get('draft')
+    if draft_str and draft_str != '-':
+        parts = [p.strip() for p in draft_str.split(',')]
+        team_name = parts[0] if parts else None
+        year_match = re.search(r'(\d{4})', draft_str)
+
+        draft_uri = EX[f'careerEvent/{slugify(name)}-draft']
+        g.add((draft_uri, RDF.type, EX.CareerEvent))
+        g.add((draft_uri, RDFS.label, Literal(draft_str)))
+
+        if year_match:
+            year = year_match.group(1)
+            g.add((draft_uri, EX.draftYear, Literal(year, datatype=XSD.gYear)))
+
+        if team_name:
+            team_uri = EX['team/' + slugify(team_name)]
+            g.add((team_uri, RDF.type, EX.Team))
+            g.add((team_uri, RDFS.label, Literal(team_name)))
+            g.add((draft_uri, EX.draftedBy, team_uri))
+            g.add((athlete_uri, EX.playsFor, team_uri))
+        g.add((athlete_uri, EX.hasDraft, draft_uri))
 
     tx_list_str = row.get('transactions_list')
     if tx_list_str and tx_list_str != '[]':
@@ -105,13 +118,13 @@ def row_to_rdf(g: Graph, EX, row, line_num):
                 tx_uri = EX[f'transaction/{slugify(name)}-{i}' if name else f'transaction/row-{line_num}-{i}']
                 g.add((tx_uri, RDF.type, EX.Transaction))
                 g.add((tx_uri, RDFS.label, Literal(tx)))
-                g.add((player_uri, EX.hasTransaction, tx_uri))
+                g.add((athlete_uri, EX.hasTransaction, tx_uri))
         except:
-            g.add((player_uri, EX.hasTransaction, Literal(tx_list_str)))
+            g.add((athlete_uri, EX.hasTransaction, Literal(tx_list_str)))
 
 def main():
-    base_ns = 'http://example.org/ontology#BasketballPlayer'
-    output_file = 'players.ttl'
+    base_ns = 'http://example.org/ontology#Athlete'
+    output_file = 'athletes.ttl'
     rdf_format = 'turtle'
     os.makedirs('datasets', exist_ok=True)
 
@@ -123,10 +136,9 @@ def main():
         for i, row in enumerate(reader, start=1):
             row_to_rdf(g, EX, row, i)
 
-    dataset_uri = URIRef(base_ns + '/dataset/players')
+    dataset_uri = URIRef(base_ns + '/dataset/athletes')
     g.add((dataset_uri, RDF.type, EX.Dataset))
     g.add((dataset_uri, DCTERMS.created, Literal(datetime.now(tz=timezone.utc).isoformat(), datatype=XSD.dateTime)))
-    g.add((dataset_uri, DCTERMS.creator, Literal('rdfize_players.py script')))
 
     g.serialize(destination=output_file, format=rdf_format)
 
