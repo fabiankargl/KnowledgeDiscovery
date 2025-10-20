@@ -1,0 +1,20 @@
+Welche Athleten wurden in welchem Jahr geboren?
+Welche Athleten sind älter als 35 Jahre?
+Welche Athleten spielen auf der Position "Guard"?
+Welche Athleten werfen mit der rechten Hand?
+Welche Athleten stammen aus den USA?
+Welche Athleten wurden in Los Angeles geboren?
+Welche Athleten wiegen mehr als 90 kg?
+Welche Athleten haben am College "Duke University" studiert?
+Welche Athleten haben dieselbe Highschool besucht?
+Welche Athleten sind in die NBA gedraftet worden?
+Welche Athleten wurden im Jahr 2017 gedraftet?
+Welche Athleten wurden aus demselben Land gedraftet?
+Welche Athleten haben Transaktionen in ihrer Karrierehistorie?
+Welche Städte kommen am häufigsten als Geburtsort vor?
+Welche Colleges haben die meisten Athleten hervorgebracht?
+Welche Athleten haben keinen College-Eintrag?
+Welche Länder stellen die meisten Spieler?
+Welche Teams haben die meisten Athleten?
+Welche Athleten haben ein Social-Media-Profil verlinkt?
+Welche Athleten sind keinem Team zugeordnet?
