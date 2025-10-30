@@ -1,7 +1,7 @@
 import pickle
 from collections import Counter
-import re
 from build_index import tf_weight, FIELD_BOOSTS, FIELDS_TO_INDEX
+from operator import itemgetter
 
 
 with open("indexes/index.pkl", "rb") as f: index = pickle.load(f)
@@ -78,7 +78,7 @@ def search(query, top_k=10):
     for doc_id in scores:
         scores[doc_id] /= doc_norms.get(doc_id, 1.0)
     if scores:
-        results = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        results = sorted(scores.items(), key=itemgetter(1), reverse=True)[:top_k]
         return [(doc_meta[doc_id]["player_name"], score) for doc_id, score in results]
     else:
         return [(doc_meta[doc_id]["player_name"], 1.0) for doc_id in list(filtered_docs)[:top_k]]
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         q = input("Query: ")
         results = search(q)
         if not results:
-            print("No results found.")
+            print("No results")
         else:
             for name, score in results:
                 print(f"{name}  (score={score:.3f})")
