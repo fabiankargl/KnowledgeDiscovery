@@ -19,14 +19,14 @@ OUT_DOCMETA = "indexes/doc_meta.pkl"
 
 # Text fields to be tokenized and indexed
 FIELDS_TO_INDEX = [
-    "player name",
-    "position clean",
+    "player_name",
+    "position_clean",
     "draft",
-    "birth city",
-    "birth country",
-    "transactions list",
+    "birth_city",
+    "birth_country",
+    "transactions_list",
     "college",
-    "high school"
+    "high_school"
 ]
 
 # Numeric fields
@@ -41,14 +41,14 @@ FIELDS_KEYWORD = [
 
 # Field boosts
 FIELD_BOOSTS: Dict[str, float] = {
-    "player name": 3.0,
-    "position clean": 2.0,
+    "player_name": 3.0,
+    "position_clean": 2.0,
     "draft": 1.5,
-    "birth city": 1.0,
-    "birth country": 1.0,
-    "transactions list": 1.0,
+    "birth_city": 1.0,
+    "birth_country": 1.0,
+    "transactions_list": 1.0,
     "college": 1.0,
-    "high school": 0.8
+    "high_school": 0.8
 }
 
 def simple_tokenize(text: str) -> List[str]:
@@ -162,32 +162,44 @@ def compute_idf_and_norms(index: Dict[str, Dict[str, Dict[int, int]]],
     doc_norms = {doc_id: math.sqrt(squared_sum) for doc_id, squared_sum in doc_squared_weights.items()}
     return idf, doc_norms
 
-def main(input_csv: str = INPUT_CSV):
-    print(f"[INFO] Load CSV-File: {input_csv}")
+
+def add_ontology_to_index(index, ontology, boost=2.0):
+    if "ontology" not in index["text"]:
+        index["text"]["ontology"] = defaultdict(dict)
+    doc_id = -1
+    for cls in ontology.get("classes", {}):
+        term = cls.lower()
+        index["text"]["ontology"].setdefault(term, {})[doc_id] = 1
+    for prop in ontology.get("properties", {}):
+        term = prop.lower()
+        index["text"]["ontology"].setdefault(term, {})[doc_id] = 1
+    for label in ontology.get("labels", {}).values():
+        for term in simple_tokenize(label):
+            index["text"]["ontology"].setdefault(term, {})[doc_id] = 1
+    for rel_dict in ontology.get("relationships", {}).values():
+        for subj, objs in rel_dict.items():
+            for term in simple_tokenize(subj):
+                index["text"]["ontology"].setdefault(term, {})[doc_id] = 1
+            for o in objs:
+                for term in simple_tokenize(o):
+                    index["text"]["ontology"].setdefault(term, {})[doc_id] = 1
+    return index
+
+
+def main(input_csv: str = INPUT_CSV, ontology_file: str = "indexes/ontology.pkl"):
     df = pd.read_csv(input_csv, sep=";")
-
-    print("[INFO] Build invetred Index ...")
     index, number_of_documents, doc_meta = build_index(df=df)
-
-    print("[INFO] Calculate IDF and Document Norms ...")
+    with open(ontology_file, "rb") as f:
+        ontology = pickle.load(f)
+    index = add_ontology_to_index(index, ontology)
+    number_of_documents += 1
     idf, doc_norms = compute_idf_and_norms(index=index,
                                            number_of_documents=number_of_documents)
-    
-    print("[INFO] Saving results ...")
+
     persist(index, OUT_INDEX)
     persist(idf, OUT_IDF)
     persist(doc_norms, OUT_DOCNORMS)
     persist(doc_meta, OUT_DOCMETA)
-
-    print("[SUCCESS] Inverted Index created successfully")
-    print("\n--- Summary ---")
-    print("Indexed field types:")
-    print(f"Text fields: {list(index['text'].keys())}")
-    print(f"Numeric fields: {list(index['numeric'].keys())}")
-    print(f"Keyword fields: {list(index['keyword'].keys())}")
-
-    for f in FIELDS_TO_INDEX:
-        print(f"  - {f}: {len(index['text'][f])} unique terms")
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Build field-aware inverted index for player data.")
